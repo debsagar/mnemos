@@ -17,16 +17,7 @@ The ledger uses [ActiveGraph](https://docs.activegraph.ai), a separate dependenc
 
 ### Storing memory
 
-```mermaid
-flowchart TD
-    Turns["Conversation turns"] --> Ledger["ActiveGraph ledger"]
-    Ledger --> Extract["LLM fact extraction"]
-    Extract --> Facts["Dated facts"]
-    Facts --> Sources["Links to source turns"]
-    Facts --> Profile["Update profile card"]
-    Ledger --> Index["SQLite search index"]
-    Facts --> Index
-```
+![Mnemos memory-write flow](docs/memory-write.svg)
 
 Original turns and extracted facts live in the ledger. Each fact has
 `derived_from` links to its source turns. Both turns and facts enter the search
@@ -34,16 +25,7 @@ index; an LLM merges new facts into the current profile.
 
 ### Answering a question
 
-```mermaid
-flowchart TD
-    Question["Question"] --> Search["Search memory"]
-    Index["SQLite search index"] --> Search
-    Search --> Context["Build context"]
-    Profile["Current profile"] --> Context
-    Recent["Recent turns"] --> Context
-    Context --> Model["Chat model"]
-    Model --> Answer["Answer"]
-```
+![Mnemos memory-read flow](docs/memory-read.svg)
 
 Search combines keyword matching, recency ranking and a recent-fact fallback.
 The context includes recent conversation when supplied. Historical questions
