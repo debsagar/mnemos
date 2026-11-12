@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mnemos — ledger</title>
+<style>
+  /* Deliberately single-theme: a dark instrument panel for a long-session dev tool.
+     Palette = validated dark-mode reference (dataviz skill); true greys, no pure black. */
+  :root {
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7;
+    --muted: #898781; --hairline: #2c2c2a; --ring: rgba(255,255,255,0.10);
+    --k-state: #3987e5; --k-event: #d95926; --k-identity: #199e70;
+    --k-plan: #c98500; --k-preference: #d55181; --tool: #9085e9;
+    --turn: #898781; --anomaly: #d03b3b; --good: #0ca30c; --warn: #fab219;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--page); color: var(--ink-2); overflow: hidden;
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  #graph { position: absolute; inset: 0; }
+
+  #panel {
+    position: absolute; top: 16px; left: 16px; bottom: 16px; width: 330px;
+    display: flex; flex-direction: column; gap: 10px; z-index: 2;
+    pointer-events: none; /* children re-enable */
+  }
+  .card {
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    backdrop-filter: blur(10px); border: 1px solid var(--ring);
+    border-radius: 10px; padding: 12px 14px; pointer-events: auto;
+  }
+  .card h2 {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
+  }
+  #head { display: flex; align-items: baseline; gap: 10px; }
+  #head .wordmark { font-family: var(--mono); font-size: 18px; color: var(--ink); font-weight: 600; }
+  #head .sub { font-size: 12px; color: var(--muted); }
+  #pill {
+    margin-left: auto; font: 600 11px/1 var(--mono); padding: 5px 9px;
+    border-radius: 999px; border: 1px solid var(--ring); white-space: nowrap;
+  }
+  #pill.good { color: var(--good); }  #pill.warn { color: var(--warn); }
+
+  #stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .stat { text-align: left; }
+  .stat b {
+    display: block; font: 600 20px/1.2 var(--mono); color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat span { font-size: 11px; color: var(--muted); }
+  .stat.alert b { color: var(--anomaly); }
+
+  #legend { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+  .key { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+  .key i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+  #detail { display: none; max-height: 34vh; overflow-y: auto; }
+  #detail .kind { font: 600 11px/1 var(--mono); letter-spacing: .05em; }
+  #detail .text { color: var(--ink); margin: 6px 0 8px; }
+  #detail .meta { font: 12px var(--mono); color: var(--muted); }
+  #detail .receipt {
+    border-left: 2px solid var(--hairline); padding: 2px 0 2px 10px;
+    margin-top: 8px; font-size: 13px; color: var(--ink-2); font-style: italic;
+  }
+  #profile { max-height: 26vh; overflow-y: auto; }
+  #profile .body { font-size: 13px; white-space: pre-wrap; color: var(--ink-2); }
+  #feed { flex: 1; min-height: 60px; overflow-y: auto; }
+  #feed .row { display: flex; gap: 8px; padding: 3px 0; font-size: 12.5px; align-items: baseline; }
+  #feed .row i { width: 7px; height: 7px; border-radius: 50%; flex: none; position: relative; top: -1px; }
+  #feed .row .d { font: 11px var(--mono); color: var(--muted); flex: none; }
+  #feed .row .t { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #hint {
+    position: absolute; left: 16px; bottom: 2px; z-index: 2;
+    font: 11px var(--mono); color: var(--muted);
+  }
+
+  /* ---- chat dock ---- */
+  #chat {
+    position: absolute; top: 16px; right: 16px; bottom: 16px; width: 400px;
+    display: flex; flex-direction: column; z-index: 2;
+    background: color-mix(in srgb, var(--surface) 90%, transparent);
+    backdrop-filter: blur(10px); border: 1px solid var(--ring); border-radius: 10px;
+  }
+  #chat h2 {
+    font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); padding: 12px 14px 8px; border-bottom: 1px solid var(--hairline);
+  }
+  #msgs { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 92%; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: #262624;
+    color: var(--ink); padding: 8px 12px; border-radius: 12px 12px 3px 12px; }
+  .msg.bot { align-self: flex-start; color: var(--ink-2); }
+  .msg.bot .who { font: 600 11px var(--mono); color: var(--muted); margin-bottom: 3px; }
+  .toolrun {
+    font: 12px var(--mono); background: #141413; border: 1px solid var(--hairline);
+    border-left: 2px solid var(--tool); border-radius: 6px; padding: 7px 10px;
+    margin: 6px 0; white-space: pre-wrap; overflow-wrap: break-word; color: var(--ink-2);
+  }
+  .toolrun .cmd { color: var(--tool); }
+  .toolrun .out { color: var(--muted); max-height: 180px; overflow-y: auto; display: block; margin-top: 4px; }
+  .thinking { color: var(--muted); font: 12px var(--mono); }
+  .thinking::after { content: '…'; animation: dots 1.2s steps(4) infinite; }
+  @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+  #chatform { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--hairline); }
+  #chatinput {
+    flex: 1; background: var(--page); color: var(--ink); border: 1px solid var(--hairline);
+    border-radius: 8px; padding: 9px 12px; font: 13.5px system-ui; outline: none; resize: none;
+  }
+  #chatinput:focus { border-color: var(--muted); }
+  #chatsend {
+    background: var(--ink); color: var(--page); border: 0; border-radius: 8px;
+    padding: 0 16px; font: 600 13px system-ui; cursor: pointer;
+  }
+  #chatsend:disabled { opacity: .4; cursor: default; }
+  #empty {
+    position: absolute; inset: 0; display: none; place-items: center; z-index: 1;
+    color: var(--muted); font-family: var(--mono); text-align: center;
+  }
+  ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 4px; }
+</style>
+</head>
+<body>
+<div id="graph"></div>
+<div id="empty"><div>ledger is empty<br><br>$ mnemos chat</div></div>
+
+<div id="panel">
+  <div class="card" id="head">
+    <span class="wordmark">mnemos</span><span class="sub">event ledger</span>
+    <span id="pill" class="good">●</span>
+  </div>
+  <div class="card"><div id="stats"></div></div>
+  <div class="card"><h2>Legend</h2><div id="legend"></div></div>
+  <div class="card" id="detail"></div>
+  <div class="card" id="profile"><h2>Profile card <span style="font-weight:400">(rebuilt each digest)</span></h2><div class="body">—</div></div>
+  <div class="card" id="feed"><h2>Latest facts</h2><div class="rows"></div></div>
+</div>
+<div id="hint">drag to orbit · scroll to zoom · click a node for receipts</div>
+
+<div id="chat">
+  <h2>Talk to mnemos</h2>
+  <div id="msgs"></div>
+  <form id="chatform">
+    <textarea id="chatinput" rows="1" placeholder="ask, or tell it to do something…"></textarea>
+    <button id="chatsend" type="submit">send</button>
+  </form>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.module.js",
+  "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.webgpu.js",
+  "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.tsl.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.179.1/examples/jsm/",
+  "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.179.1/examples/jsm/"
+} }
+</script>
+<script type="module">
+import ForceGraph3D from 'https://esm.sh/3d-force-graph@1.79.0?external=three';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const KIND = { state: css('--k-state'), event: css('--k-event'), identity: css('--k-identity'),
+               plan: css('--k-plan'), preference: css('--k-preference') };
+const COLOR = n =>
+  n.fresh ? '#ffffff' :
+  n.type === 'turn' ? css('--turn') :
+  n.type === 'anomaly' ? css('--anomaly') :
+  n.type === 'tool_run' ? css('--tool') : (KIND[n.kind] || css('--k-state'));
+
+// legend (identity is never color-alone: hover labels + this legend + the panel)
+document.getElementById('legend').innerHTML =
+  Object.entries(KIND).map(([k, c]) => `<span class="key"><i style="background:${c}"></i>${k}</span>`).join('') +
+  `<span class="key"><i style="background:${css('--turn')}"></i>turn (verbatim)</span>` +
+  `<span class="key"><i style="background:${css('--tool')}"></i>tool run</span>` +
+  `<span class="key"><i style="background:${css('--anomaly')}"></i>anomaly</span>`;
+
+const el = document.getElementById('graph');
+const Graph = ForceGraph3D()(el)
+  .showNavInfo(false)
+  .backgroundColor(css('--page'))
+  .nodeColor(COLOR)
+  .nodeVal(n => n.type === 'turn' ? 1.5 : n.type === 'anomaly' ? 8 : n.type === 'tool_run' ? 3 : 4.5)
+  .nodeLabel(n => {
+    const when = n.type === 'fact' ? `${n.date} (learned ${n.learned})` : n.date;
+    const tag = n.type === 'fact' ? n.kind : n.type;
+    return `<div style="font:12px system-ui;max-width:340px;background:#1a1a19;color:#c3c2b7;
+            padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.1)">
+            <b style="color:${COLOR(n)};font-family:monospace">${tag}</b>
+            <span style="color:#898781;font-family:monospace"> ${when}</span><br>${esc(n.label)}</div>`;
+  })
+  .linkColor(l => l.type === 'next' ? 'rgba(137,135,129,0.55)' : 'rgba(255,255,255,0.16)')
+  .linkWidth(l => l.type === 'next' ? 1.2 : 0.4)
+  .linkDirectionalParticles(l => l.type === 'derived_from' ? 1 : 0)
+  .linkDirectionalParticleWidth(1.2)
+  .linkDirectionalParticleSpeed(0.004)
+  .onNodeClick(showDetail)
+  .warmupTicks(60)
+  .cooldownTime(4000);
+
+// subtle glow; strength kept low so labels stay legible
+Graph.postProcessingComposer().addPass(new UnrealBloomPass(undefined, 0.55, 0.7, 0.05));
+
+// slow ambient orbit until the user grabs the scene (off for reduced-motion)
+if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  Graph.controls().autoRotate = true;
+  Graph.controls().autoRotateSpeed = 0.4;
+  el.addEventListener('pointerdown', () => Graph.controls().autoRotate = false, { once: true });
+}
+
+const esc = s => (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nodes = new Map();   // id -> node object (kept across polls so positions survive)
+let firstLoad = true;
+
+async function poll() {
+  try {
+    const d = await (await fetch('/api/graph')).json();
+    document.getElementById('empty').style.display = d.nodes.length ? 'none' : 'grid';
+
+    let added = false;
+    for (const n of d.nodes) {
+      if (!nodes.has(n.id)) {
+        n.fresh = !firstLoad;          // new nodes flash white, then take their color
+        nodes.set(n.id, n);
+        if (n.fresh) { added = true; setTimeout(() => { n.fresh = false; Graph.refresh(); }, 2500); }
+      }
+    }
+    if (added || firstLoad) {
+      Graph.graphData({ nodes: [...nodes.values()], links: d.links });
+    }
+
+    const s = d.stats;
+    document.getElementById('stats').innerHTML = `
+      <div class="stat"><b>${s.turns}</b><span>turns</span></div>
+      <div class="stat"><b>${s.facts}</b><span>facts</span></div>
+      <div class="stat"><b>${s.events}</b><span>events</span></div>
+      <div class="stat${s.anomalies ? ' alert' : ''}"><b>${s.anomalies}</b><span>anomalies</span></div>`;
+    const pill = document.getElementById('pill');
+    if (s.pending > 1) { pill.className = 'warn'; pill.textContent = `● digesting ${Math.floor(s.pending / 2)}`; }
+    else { pill.className = 'good'; pill.textContent = '● up to date'; }
+
+    document.querySelector('#profile .body').textContent = d.profile || '— (run `mnemos digest`)';
+
+    const facts = d.nodes.filter(n => n.type === 'fact').sort((a, b) => (b.learned || '').localeCompare(a.learned || ''));
+    document.querySelector('#feed .rows').innerHTML = facts.slice(0, 30).map(f =>
+      `<div class="row"><i style="background:${KIND[f.kind] || css('--k-state')}"></i>
+       <span class="d">${f.date}</span><span class="t">${esc(f.label)}</span></div>`).join('');
+    firstLoad = false;
+  } catch (e) { /* server restarting — try again next tick */ }
+}
+
+async function showDetail(n) {
+  const box = document.getElementById('detail');
+  const d = await (await fetch('/api/node/' + encodeURIComponent(n.id))).json();
+  const color = COLOR(n);
+  box.style.display = 'block';
+  box.innerHTML = `<h2>Selected node</h2>
+    <span class="kind" style="color:${color}">${d.kind || d.type}</span>
+    <div class="text">${esc(d.text || d.label || d.raw || '')}</div>
+    <div class="meta">${d.type === 'fact' ? `happened ${d.date} · learned ${d.learned}` : d.date}
+      · <span style="opacity:.7">${esc(n.id)}</span></div>
+    ${(d.receipts || []).map(r => `<div class="receipt">"${esc(r)}"</div>`).join('')}`;
+  // pull the camera toward the node
+  const dist = 120, ratio = 1 + dist / Math.hypot(n.x, n.y, n.z || 1);
+  Graph.cameraPosition({ x: n.x * ratio, y: n.y * ratio, z: n.z * ratio }, n, 900);
+}
+
+poll();
+setInterval(poll, 3000);
+
+// ---- chat dock ----
+const msgs = document.getElementById('msgs');
+const input = document.getElementById('chatinput');
+const send = document.getElementById('chatsend');
+
+function bubble(html, cls) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls;
+  d.innerHTML = html;
+  msgs.appendChild(d);
+  msgs.scrollTop = msgs.scrollHeight;
+  return d;
+}
+
+async function sendMsg(e) {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (!text || send.disabled) return;
+  input.value = '';
+  bubble(esc(text), 'user');
+  send.disabled = true;
+  const wait = bubble('<span class="thinking">mnemos is working</span>', 'bot');
+  try {
+    const r = await fetch('/api/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text }),
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    const tools = (d.tool_runs || []).map(t =>
+      `<div class="toolrun"><span class="cmd">$ ${esc(t.command)}</span>` +
+      `${t.exit_code ? ` <span style="color:var(--anomaly)">(exit ${t.exit_code})</span>` : ''}` +
+      `<span class="out">${esc(t.output || '(no output)')}</span></div>`).join('');
+    wait.innerHTML = `<div class="who">mnemos</div>${tools}${esc(d.reply)}`;
+  } catch (err) {
+    wait.innerHTML = `<div class="who">mnemos</div><span style="color:var(--anomaly)">error: ${esc(err.message)}</span>`;
+  }
+  send.disabled = false;
+  input.focus();
+  msgs.scrollTop = msgs.scrollHeight;
+  poll();  // pull the new turns/tool runs into the graph right away
+}
+
+document.getElementById('chatform').addEventListener('submit', sendMsg);
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(e); }
+});
+</script>
+</body>
+</html>

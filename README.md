@@ -37,10 +37,15 @@ uv run mnemos serve                      # local browser interface
 
 Memory is stored in `~/.mnemos/` by default. Retrieved context is sent to the configured model provider. The browser agent can execute shell commands as your user; keep it on localhost and use it only in a trusted environment. Its visualization loads libraries from public CDNs.
 
+## MCP integration
+
+Run `uv run python -m mnemos.mcp_server` from this checkout, or configure an MCP client to launch `.venv/bin/python -m mnemos.mcp_server` with this checkout as its working directory. The stdio server exposes `remember`, `recall`, `why`, `due` and `stats`. Set `MNEMOS_HOME` to choose its memory directory. `remember` starts model-based extraction in the background; the read tools work without an API key.
+
 ## Check without an API key
 
 ```bash
 uv run python test_core.py
+uv run python test_mcp.py
 ```
 
 The check uses fake model replies and temporary memory. It covers source links, extraction failures, interrupted exchanges, background digestion and recorded tool calls. It does not measure model quality.
