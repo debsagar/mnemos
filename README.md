@@ -13,6 +13,68 @@ For example, if you change jobs, Mnemos keeps both updates. You can ask about yo
 
 The ledger uses [ActiveGraph](https://docs.activegraph.ai), a separate dependency. Mnemos adds the memory extraction, retrieval, source tracing, CLI and browser interface.
 
+## Architecture
+
+```mermaid
+flowchart TD
+    Input["Conversation exchange"] --> Ledger["ActiveGraph ledger: verbatim turns"]
+    Ledger --> Index["SQLite FTS5: turns and facts"]
+    Ledger --> Digest["digest: LLM fact extraction"]
+    Digest --> Facts["Dated facts + derived_from links in ledger"]
+    Facts --> Index
+    Facts --> Profile["LLM-updated profile card"]
+    Question["Question through CLI or browser"] --> Retrieve["Keyword search + recency ranking and fallback"]
+    Index --> Retrieve
+    Retrieve --> Context["Answer context"]
+    Profile -->|"Current questions only"| Context
+    Recent["Recent conversation, when provided"] --> Context
+    Context --> Model["Chat model"]
+    Model --> Answer["Answer"]
+    Facts --> Why["why: follow links to original user messages"]
+```
+
+The ledger is the durable record. The search index and profile are rebuildable
+views of it. Interactive chat schedules extraction after replying; one-shot
+`ask` runs extraction before exiting. MCP exposes memory operations to another
+agent rather than running this answer pipeline itself.
+
+Facts keep two dates: when something happened (`date`) and when it was learned
+(`learned`). An `asof` query filters on the learned date and omits the current
+profile so later updates cannot leak through that card. Retrieval uses lexical
+search and a recent-fact fallback, not embeddings; it can miss relevant context.
+
+## Example: remembering a job change
+
+This fictional example illustrates the flow, not a measured model transcript.
+Assume each exchange has been recorded and digested on the date shown.
+
+| Recorded on | User message | Illustrative extracted fact |
+|---|---|---|
+| June 1 | “I work at Cedar as a designer.” | `state \| 2026-06-01 \| works at Cedar as a designer` |
+| July 10 | “I left Cedar and joined Maple as a researcher today.” | `state \| 2026-07-10 \| works at Maple as a researcher` |
+
+The old turns and facts remain in the ledger. The profile is updated to reflect
+Maple, and the new fact links back to the July message.
+
+```bash
+uv run mnemos ask "Where do I work?"
+# Intended answer: Maple, using the latest update.
+
+uv run mnemos asof 2026-06-20 "Where do I work?"
+# Intended answer: Cedar. The July update was not known on June 20.
+
+uv run mnemos why "Maple"
+# Displays matching facts and their original user messages, for example:
+# [2026-07-10] (state) works at Maple as a researcher
+#     receipt: "I left Cedar and joined Maple as a researcher today."
+```
+
+`why` may return additional facts because recall includes a recent-fact fallback.
+Its receipts come from stored source links; the first two answers are generated
+by a model and can be wrong. If the July message instead reported a change that
+happened in May, an as-of-June query would still exclude it: this is **what was
+known then**, not a reconstruction using facts learned later.
+
 ## Run locally
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
