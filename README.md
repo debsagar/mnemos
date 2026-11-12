@@ -15,23 +15,40 @@ The ledger uses [ActiveGraph](https://docs.activegraph.ai), a separate dependenc
 
 ## Architecture
 
+### Storing memory
+
 ```mermaid
 flowchart TD
-    Input["Conversation exchange"] --> Ledger["ActiveGraph ledger: verbatim turns"]
-    Ledger --> Index["SQLite FTS5: turns and facts"]
-    Ledger --> Digest["digest: LLM fact extraction"]
-    Digest --> Facts["Dated facts + derived_from links in ledger"]
+    Turns["Conversation turns"] --> Ledger["ActiveGraph ledger"]
+    Ledger --> Extract["LLM fact extraction"]
+    Extract --> Facts["Dated facts"]
+    Facts --> Sources["Links to source turns"]
+    Facts --> Profile["Update profile card"]
+    Ledger --> Index["SQLite search index"]
     Facts --> Index
-    Facts --> Profile["LLM-updated profile card"]
-    Question["Question through CLI or browser"] --> Retrieve["Keyword search + recency ranking and fallback"]
-    Index --> Retrieve
-    Retrieve --> Context["Answer context"]
-    Profile -->|"Current questions only"| Context
-    Recent["Recent conversation, when provided"] --> Context
+```
+
+Original turns and extracted facts live in the ledger. Each fact has
+`derived_from` links to its source turns. Both turns and facts enter the search
+index; an LLM merges new facts into the current profile.
+
+### Answering a question
+
+```mermaid
+flowchart TD
+    Question["Question"] --> Search["Search memory"]
+    Index["SQLite search index"] --> Search
+    Search --> Context["Build context"]
+    Profile["Current profile"] --> Context
+    Recent["Recent turns"] --> Context
     Context --> Model["Chat model"]
     Model --> Answer["Answer"]
-    Facts --> Why["why: follow links to original user messages"]
 ```
+
+Search combines keyword matching, recency ranking and a recent-fact fallback.
+The context includes recent conversation when supplied. Historical questions
+omit the current profile. The separate `why` command follows source links to
+show the original user messages.
 
 The ledger is the durable record. The search index and profile are rebuildable
 views of it. Interactive chat schedules extraction after replying; one-shot
